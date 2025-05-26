@@ -1,0 +1,123 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Media;
+using System.Threading;
+using RestSharp;
+using Newtonsoft.Json.Linq;
+
+namespace GeminiChat
+{
+    class Program
+    {
+        private static string GeminiApiKey = "AIzaSyCHlyPilAxT-fRLbyVoMr9eHbi_BZHqTnY"; // api key for Gemini API
+        static List<string> conversationHistory = new List<string>();
+        static void Main(string[] args)
+        {
+            Console.Title = "Welcome to Gemini AI Bot";
+            Console.Clear();
+
+            Console.Write("What is your name: ");
+            string name = Console.ReadLine()?.Trim();
+            ShowWelcomeMessage(name);
+
+            while (true)
+            {
+                try
+                {
+                    Console.Write("\nYou: ");
+                    string input = Console.ReadLine()?.Trim();
+
+                    if (string.IsNullOrEmpty(input))
+                    {
+                        Console.WriteLine("Bot: Ask a question.");
+                        continue;
+                    }
+
+                    string response = Input(input);
+                    Console.WriteLine($"\nBot: {response}");
+
+
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error: {ex.Message}");
+                }
+            }
+        }
+
+        static void ShowWelcomeMessage(string name)
+        {
+            Console.WriteLine($"\nWelcome, {name}!");
+        }
+        static string Input(string input)
+        {
+            switch (Standardize(input))
+            {
+                case "Hi":
+                    return "Hey, man!!";
+            
+                default:
+                    return QueryGeminiWithContext(input);
+            }
+        }
+
+        static string Standardize(string input)
+        {
+            return input.ToLower().Trim();
+        }
+
+        static string QueryGeminiWithContext(string prompt)
+        {
+            try
+            {
+                var client = new RestClient("https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash-001:generateContent");
+
+                string apiKey = Environment.GetEnvironmentVariable("GEMINI_API_KEY") ?? GeminiApiKey;
+
+                string context = string.Join("\n", conversationHistory.TakeLast(5)); // include last 5 messages
+                string fullPrompt = $"{context}\nUser: {prompt}";
+
+                var request = new RestRequest($"?key={apiKey}", Method.Post);
+                request.AddHeader("Content-Type", "application/json");
+
+                var body = new
+                {
+                    contents = new[]
+                    {
+                        new
+                        {
+                            parts = new[]
+                            {
+                                new { text = fullPrompt }
+                            }
+                        }
+                    }
+                };
+
+                request.AddJsonBody(body);
+                var response = client.Execute(request);
+
+                if (response.IsSuccessful)
+                {
+                    var json = JObject.Parse(response.Content);
+                    return json["candidates"]?[0]?["content"]?["parts"]?[0]?["text"]?.ToString() ?? "No response from Gemini.";
+                }
+
+                if ((int)response.StatusCode == 404)
+                    return "Model not found. Try checking the model name or your API plan.";
+                if ((int)response.StatusCode == 429)
+                    return "You’ve exceeded your quota or rate limit. Try again later.";
+                if ((int)response.StatusCode == 401)
+                    return "Unauthorized. Check your API key.";
+
+                return $"Gemini API error: {response.StatusCode}";
+            }
+            catch (Exception ex)
+            {
+                return $"Error querying Gemini API: {ex.Message}";
+            }
+        }
+    }
+}
